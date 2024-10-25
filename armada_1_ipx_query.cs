@@ -17,11 +17,13 @@ class Armada1 {
     private bool closed;
     private bool ongoing;
     private bool password;
+    private bool faulty;
     public Armada1 (byte[] payload) {
         if (payload == null || payload.Length < 96) {
             this.mapName = "faulty";
             this.gameName = "Package";
             this.playerCount = 0;
+            this.faulty = true;
         }
         else {
             byte[] playerCount = payload.Skip(52).Take(4).ToArray();
@@ -40,7 +42,12 @@ class Armada1 {
             this.ongoing = (ongoingNumber == 4);
             byte passwordNumber = (byte) (desc1_3 & 32);
             this.password = (passwordNumber == 32);
+            this.faulty = false;
         }
+    }
+
+    public bool isFaulty () {
+        return this.faulty;
     }
 
     public string getGameName () {
@@ -114,7 +121,7 @@ class Helpers {
 	}
     public static string getStringFromBytes (byte[] bytes) {
         Encoding wind1252 = Encoding.GetEncoding(1252);
-        Encoding utf8 = Encoding.UTF8;  
+        Encoding utf8 = Encoding.UTF8;
         string text = "";
         foreach (byte character in bytes) {
             if (character != 0) {
@@ -144,7 +151,7 @@ class Helpers {
 
 namespace ConsoleParameters{
     class Program {
-    
+
         private static IPXPackage getRegisterPackage () {
         IPXPackage register = new IPXPackage();
         register.setPacketType(IPXPackage.packetTypeEchoProtocol());
@@ -154,7 +161,7 @@ namespace ConsoleParameters{
         register.setSourceSocket(IPXPackage.errorHandlingSocket());
         return register;
     }
-        
+
         static void Main(string[] args) {
             ConsoleParameters.InitializeParameters
                 ("--",
@@ -211,115 +218,132 @@ namespace ConsoleParameters{
                           else {
                               return "The provided port " + port + " is not valid.";
                           }
-                      })
+                      }),
+                 new ParameterDefinition
+                     ("continuous",
+                      ParameterType.Boolean,
+                      false,
+                      1,
+                      1,
+                      false,
+                      "If set, Star Trek: Armada matches will be queried for continuously, once per minute. Every time the output file will be overwritten.")
              },
              args,
              "This is a program useful for querying open Star Trek: Armada matches via an RFC 1234 IPX server. It tries to register with the given IPX server and queries Star Trek: Armada matches hosted on the IPX network. All results will be saved to a JSON formatted file.",
              true);
+            bool continuously = ConsoleParameters.getParameterByName("continuous").getBoolValue();
             string jsonFileName;
             if (ConsoleParameters.getParameterByName("outputfile").getNumberOfValues() == 0) {
-            jsonFileName = "armada_1.json";
-        }
+                jsonFileName = "armada_1.json";
+            }
             else {
-            jsonFileName = ConsoleParameters.getParameterByName("outputfile").getStringValues()[0];
-        }
-    		IPAddress IPXServer;
-            
+                jsonFileName = ConsoleParameters.getParameterByName("outputfile").getStringValues()[0];
+            }
+            IPAddress IPXServer;
             if (ConsoleParameters.getParameterByName("ip").getNumberOfValues() == 0) {
-            IPXServer = IPAddress.Parse("127.0.0.1");
-        }
+               IPXServer = IPAddress.Parse("127.0.0.1");
+            }
             else {
-            IPXServer = IPAddress.Parse(ConsoleParameters.getParameterByName("ip").getStringValues()[0]);
-        }
+                IPXServer = IPAddress.Parse(ConsoleParameters.getParameterByName("ip").getStringValues()[0]);
+            }
             int IPXServerPort;
             if (ConsoleParameters.getParameterByName("port").getNumberOfValues() == 0) {
-            IPXServerPort = 213;
-        }
+                IPXServerPort = 213;
+            }
             else {
-            IPXServerPort = (int) ConsoleParameters.getParameterByName("port").getUintegerValues()[0];
-        }
+                IPXServerPort = (int) ConsoleParameters.getParameterByName("port").getUintegerValues()[0];
+            }
             UdpClient udpClientSender = null;
-    		try {
-			udpClientSender = new UdpClient(AddressFamily.InterNetwork);
-		}
-		catch (SocketException e) {
-			Console.WriteLine("Could not open a local UDP socket.");
-			Console.WriteLine(e);
-			Environment.Exit(4);
-		}
             try {
-            IPEndPoint targetEndpoint = new IPEndPoint(IPXServer, IPXServerPort);
-		
-			udpClientSender = new UdpClient(AddressFamily.InterNetwork);
-			
-            byte[] registerBytes = getRegisterPackage().getPackageBytes();
-            udpClientSender.Send(registerBytes, registerBytes.Length, targetEndpoint);
-            Thread.Sleep(20); // Give them some time to react
-            // This loop should only go one round tops, because only one
-            // package should be received (from the IPX server).
-            IPXPackage registerAnswer = new IPXPackage();
+    			udpClientSender = new UdpClient(AddressFamily.InterNetwork);
+    		}
+    		catch (SocketException e) {
+    			Console.WriteLine("Could not open a local UDP socket.");
+    			Console.WriteLine(e);
+    			Environment.Exit(4);
+    		}
             try {
-                while (udpClientSender.Available > 0) {
-                    // Blocks until a message returns on this socket from a remote
-                    // host. But Available already tolds us, there's something in
-                    // the buffer for us.
-                    Byte[] receiveBytes = udpClientSender.Receive(ref targetEndpoint);
-                    registerAnswer = new IPXPackage(receiveBytes);
-                    if (registerAnswer.isFaulty()) {
-                        Console.WriteLine("Registration failed. Number of received bytes: " + receiveBytes.Length);
-                        Console.WriteLine("Received:" );
-                        Helpers.dump_bytes(receiveBytes);
+                IPEndPoint targetEndpoint = new IPEndPoint(IPXServer, IPXServerPort);
+
+                udpClientSender = new UdpClient(AddressFamily.InterNetwork);
+
+                byte[] registerBytes = getRegisterPackage().getPackageBytes();
+                udpClientSender.Send(registerBytes, registerBytes.Length, targetEndpoint);
+                Thread.Sleep(20); // Give them some time to react
+                // This loop should only go one round tops, because only one
+                // package should be received (from the IPX server).
+                IPXPackage registerAnswer = new IPXPackage();
+                try {
+                    while (udpClientSender.Available > 0) {
+                        // Blocks until a message returns on this socket from a remote
+                        // host. But Available already tolds us, there's something in
+                        // the buffer for us.
+                        Byte[] receiveBytes = udpClientSender.Receive(ref targetEndpoint);
+                        registerAnswer = new IPXPackage(receiveBytes);
+                        if (registerAnswer.isFaulty()) {
+                            Console.WriteLine("Registration failed.");
+                            Environment.Exit(2);
+                        }
+                    }
+                }
+                catch (Exception e) {
+                    Console.WriteLine("Registration failed. Remote host did not answer.");
+                    Environment.Exit(2);
+                }
+                bool first_round = true;
+                while (continuously || first_round) {
+                    byte [] IPXServerNode = registerAnswer.getDestinationNode();
+                    IPXPackage armadaQuery = Armada1.getArmadaQueryPackage(IPXServerNode);
+                    byte [] queryBytes = armadaQuery.getPackageBytes();
+                    int epochTime = Helpers.getCurrentEpochTime();
+                    udpClientSender.Send(queryBytes, queryBytes.Length, targetEndpoint);
+                    Thread.Sleep(20);
+                    string json = "{\"time\":" + epochTime + ", \"matches\":[\n";
+                    bool is_first = true;
+                    try {
+                        while (udpClientSender.Available > 0) {
+                            // This can go on multiple times, depending on how many
+                            // game servers are up.
+                            Byte[] receiveBytes = udpClientSender.Receive(ref targetEndpoint);
+                            IPXPackage serverAnswer = new IPXPackage(receiveBytes);
+                            if (!serverAnswer.isFaulty()) {
+                                Armada1 gameInfo = new Armada1(serverAnswer.getPayload());
+                                if (!gameInfo.isFaulty()) {
+                                    if (!is_first) {
+                                        // The single objects come as a line, with linebreak.
+                                        // We prepend them, because it's easier, logic-wise.
+                                        // Works just as well...
+                                        json += ",";
+                                    }
+                                    else {
+                                        is_first = false;
+                                    }
+                                    json += gameInfo.getJsonObject();
+                                }
+                            }
+                        }
+                        json += "]}";
+                        Helpers.writeStringToFile(json, jsonFileName);
+                        if (continuously) {
+                            /* Together with the 20 ms from above, those are 60
+                               seconds round time. */
+                            Thread.Sleep(59980);
+                        }
+                    }
+                    catch (Exception e) {
+                        Console.WriteLine("Armada query failed. IPX server could not be reached.");
                         Environment.Exit(2);
                     }
+                    first_round = false;
                 }
+                udpClientSender.Close();
+                udpClientSender.Dispose();
             }
             catch (Exception e) {
-                Console.WriteLine("Registration failed. Remote host did not answer.");
-                Environment.Exit(2);
+                Console.WriteLine(e.ToString());
             }
-            byte [] IPXServerNode = registerAnswer.getDestinationNode();
-            IPXPackage armadaQuery = Armada1.getArmadaQueryPackage(IPXServerNode);
-            byte [] queryBytes = armadaQuery.getPackageBytes();
-            int epochTime = Helpers.getCurrentEpochTime();
-            udpClientSender.Send(queryBytes, queryBytes.Length, targetEndpoint);
-            Thread.Sleep(20);
-            string json = "{\"time\":" + epochTime + ", \"matches\":[\n";
-            bool is_first = true;
-            try {
-                while (udpClientSender.Available > 0) {
-                    // This can go on multiple times, depending on how many
-                    // game servers are up.
-                    Byte[] receiveBytes = udpClientSender.Receive(ref targetEndpoint);
-                    IPXPackage serverAnswer = new IPXPackage(receiveBytes);
-                    if (!serverAnswer.isFaulty()) {
-                        if (!is_first) {
-                            // The single objects come as a line, with linebreak.
-                            // We prepend them, because it's easier, logic-wise.
-                            // Works just as well...
-                            json += ",";
-                        }
-                        else {
-                            is_first = false;
-                        }
-                        Armada1 gameInfo = new Armada1(serverAnswer.getPayload());
-                        json += gameInfo.getJsonObject();
-                    }
-                }
-                json += "]}";
-                Helpers.writeStringToFile(json, jsonFileName);
-            }
-            catch (Exception e) {
-                Console.WriteLine("Armada query failed. IPX server could not be reached.");
-                Environment.Exit(2);
-            }
-            udpClientSender.Close();
-            udpClientSender.Dispose();
-        }  
-        catch (Exception e) {
-            Console.WriteLine(e.ToString());
         }
-        }
-    
+
     }
 }
 class IPXPackage {
@@ -354,7 +378,7 @@ class IPXPackage {
     }
 	public static byte[] registerNode () {
         // Registration uses fake source and destination nodes. If we receive those via
-	    // UDP, then it's an attempt to register with us:          
+	    // UDP, then it's an attempt to register with us:
 	    return new byte[6] {0, 0, 0, 0, 0, 0};
     }
 	public static byte[] errorHandlingSocket () {
@@ -398,7 +422,7 @@ class IPXPackage {
         this.sourceSocket = byteStream.Skip(28).Take(2).ToArray();
 		payload = byteStream.Skip(ipxHeaderLength()).ToArray();
 	}
-    
+
     public IPXPackage () {
 		this.length = new byte[2] {0, ipxHeaderLength()};
         this.packetType = ipxPacket();
@@ -406,7 +430,7 @@ class IPXPackage {
         this.destinationSocket = errorHandlingSocket();
         this.sourceNode = BroadcastNode();
         this.sourceSocket = errorHandlingSocket();
-        this.payload = new byte[0] {};            // 
+        this.payload = new byte[0] {};            //
 
 	}
 
@@ -424,7 +448,7 @@ class IPXPackage {
             this.packetType = bytes;
         }
     }
-    
+
     public byte[] getDestinationNode () {
         return this.destinationNode;
     }
