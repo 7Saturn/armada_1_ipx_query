@@ -14,15 +14,18 @@ class Armada1 {
     private string mapName;
     private string gameName;
     private int playerCount;
+    private int maxPlayerCount;
     private bool closed;
     private bool ongoing;
     private bool password;
     private bool faulty;
+    private bool h2h;
     public Armada1 (byte[] payload) {
         if (payload == null || payload.Length < 96) {
             this.mapName = "faulty";
             this.gameName = "Package";
             this.playerCount = 0;
+            this.maxPlayerCount = 0;
             this.faulty = true;
         }
         else {
@@ -35,6 +38,13 @@ class Armada1 {
             byte[] gameName = payload.Skip(92).ToArray();
             this.gameName = Helpers.getStringFromBytes(gameName);
             // From the desc1 32 bits only the 3rd byte:
+            byte desc1_2 = payload.Skip(73).Take(1).ToArray()[0];
+            byte maxPlayers = (byte) (desc1_2 & 224);
+            maxPlayers = (byte) (maxPlayers / 32);
+            if (maxPlayers == 0) {
+                maxPlayers = 8;
+            }
+            this.maxPlayerCount = (int) maxPlayers;
             byte desc1_3 = payload.Skip(74).Take(1).ToArray()[0];
             byte closedNumber = (byte) (desc1_3 & 2);
             this.closed = (closedNumber == 2);
@@ -42,6 +52,8 @@ class Armada1 {
             this.ongoing = (ongoingNumber == 4);
             byte passwordNumber = (byte) (desc1_3 & 32);
             this.password = (passwordNumber == 32);
+            byte h2hNumber = (byte) (desc1_3 & 64);
+            this.h2h = (h2hNumber == 64);
             this.faulty = false;
         }
     }
@@ -60,6 +72,14 @@ class Armada1 {
 
     public int getPlayerCount () {
         return this.playerCount;
+    }
+
+    public bool getIsH2H () {
+        return this.h2h;
+    }
+
+    public int getMaxPlayerCount () {
+        return this.maxPlayerCount;
     }
 
     public string toString () {
@@ -92,6 +112,8 @@ class Armada1 {
         return
           "{\"playerCount\":"
         + getPlayerCount()
+        + ",\"maxPlayerCount\":"
+        + getMaxPlayerCount()
         + ",\"gameName\":\""
         + getGameName().Replace("\\", "\\\\").Replace("\"", "\\\"")
         + "\",\"mapName\":\""
@@ -102,6 +124,8 @@ class Armada1 {
         + (ongoing ? "1" : "0")
         + ",\"password\":"
         + (password ? "1" : "0")
+        + ",\"h2h\":"
+        + (h2h ? "1" : "0")
         + "}\n";
     }
 }
