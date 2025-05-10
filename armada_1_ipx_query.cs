@@ -11,6 +11,7 @@ using ConsoleParameters;
 // This constructor arbitrarily assigns the local port number.
 
 class Armada1 {
+    private string matchID;
     private string mapName;
     private string gameName;
     private int playerCount;
@@ -22,6 +23,7 @@ class Armada1 {
     private bool h2h;
     public Armada1 (byte[] payload) {
         if (payload == null || payload.Length < 96) {
+            this.matchID = "00000000000000000000000000000000";
             this.mapName = "faulty";
             this.gameName = "Package";
             this.playerCount = 0;
@@ -29,6 +31,9 @@ class Armada1 {
             this.faulty = true;
         }
         else {
+            // The match ID is a UUID, generated anew for each opened lobby.
+            byte[] guid = payload.Skip(16).Take(16).ToArray();
+            this.matchID = BitConverter.ToString(guid).Replace("-", string.Empty);
             byte[] playerCount = payload.Skip(52).Take(4).ToArray();
             // We will never have the problem, that more than 8 players are
             // present. So the first byte is quite enough to evaluate.
@@ -68,6 +73,10 @@ class Armada1 {
 
     public string getMapName () {
         return this.mapName;
+    }
+
+    public string getmatchID () {
+        return this.matchID;
     }
 
     public int getPlayerCount () {
@@ -118,6 +127,8 @@ class Armada1 {
         + getGameName().Replace("\\", "\\\\").Replace("\"", "\\\"")
         + "\",\"mapName\":\""
         + getMapName().Replace("\\", "\\\\").Replace("\"", "\\\"")
+        + "\",\"matchID\":\""
+        + getmatchID()
         + "\",\"closed\":"
         + (closed ? "1" : "0")
         + ",\"ongoing\":"
