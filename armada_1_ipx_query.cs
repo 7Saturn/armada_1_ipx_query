@@ -39,9 +39,9 @@ class Armada1 {
             // present. So the first byte is quite enough to evaluate.
             this.playerCount = playerCount[0];
             byte[] mapName = payload.Skip(76).Take(12).ToArray();
-            this.mapName = Helpers.getStringFromBytes(mapName);
+            this.mapName = Helpers.getStringFromBytes(mapName, false);
             byte[] gameName = payload.Skip(92).ToArray();
-            this.gameName = Helpers.getStringFromBytes(gameName);
+            this.gameName = Helpers.getStringFromBytes(gameName, true);
             // From the desc1 32 bits only the 3rd byte:
             byte desc1_2 = payload.Skip(73).Take(1).ToArray()[0];
             byte maxPlayers = (byte) (desc1_2 & 224);
@@ -154,15 +154,35 @@ class Helpers {
 		}
 		return temp_list.ToArray();
 	}
-    public static string getStringFromBytes (byte[] bytes) {
+    public static string getStringFromBytes (byte[] bytes, bool isUnicode) {
         Encoding wind1252 = Encoding.GetEncoding(1252);
         Encoding utf8 = Encoding.UTF8;
         string text = "";
+        bool first = false;
+        ushort currentCharacter = 0;
         foreach (byte character in bytes) {
-            if (character != 0) {
-                byte[] utf8Bytes = Encoding.Convert(wind1252, utf8, new byte[1] {character});
-                string utf8String = Encoding.UTF8.GetString(utf8Bytes);
-                text += utf8String;
+            // Map names seem to be Windows-1252 but the game's name seems to be
+            // the Unicode characters not yet UTF-8-encoded but 2 bytes.
+            if (isUnicode) {
+                first = !first;
+                if (first) {
+                    currentCharacter = character;
+                }
+                else {
+                    currentCharacter += (ushort)(character * 256);
+                    if (currentCharacter > 0) {
+                        text += ((char)currentCharacter).ToString();
+                    }
+                }
+            }
+            else {
+                // JSON does not like control characters... But for map names
+                // They provide no value anyway...
+                if (character > 31) {
+                    byte[] utf8Bytes = Encoding.Convert(wind1252, utf8, new byte[1] {character});
+                    string utf8String = utf8.GetString(utf8Bytes);
+                    text += utf8String;
+                }
             }
         }
         return text;
